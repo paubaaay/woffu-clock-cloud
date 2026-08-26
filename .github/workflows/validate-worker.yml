@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  syntax:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -16,16 +16,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
 
-      - name: Check stable v2 syntax
-        run: node --check src/index-v2.js
-
-      - name: Check v3 syntax
-        run: node --check src/index-v3.js
-
-      - name: Check v4 syntax
-        run: node --check src/index-v4.js
-
-      - name: Validate Wrangler configuration
+      - name: Check JavaScript syntax
         run: |
-          node -e "const fs=require('fs'); JSON.parse(fs.readFileSync('wrangler.jsonc','utf8')); console.log('wrangler.jsonc OK')"
+          node --check src/index-v2.js
+          node --check src/index-v3.js
+          node --check src/index-v4.js
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check Wrangler version
+        run: npx wrangler --version
+
+      - name: Bundle Worker without deploying
+        run: npx wrangler deploy --dry-run --outdir dist
