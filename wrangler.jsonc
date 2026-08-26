@@ -1,22 +1,16 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-
   "name": "woffu-clock-cloud",
-
-  "main": "src/index.js",
-
+  "main": "src/index-v2.js",
   "compatibility_date": "2026-08-26",
-
   "observability": {
     "enabled": true
   },
-
   "triggers": {
     "crons": [
       "* * * * *"
     ]
   },
-
   "d1_databases": [
     {
       "binding": "DB"
