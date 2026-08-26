@@ -20,8 +20,7 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           node --check src/index-v2.js
-          node --check src/index-v3.js
-          node --check src/index-v4.js
+          node --check src/index-v5.js
 
       - name: Install dependencies
         run: npm install
