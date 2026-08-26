@@ -1,4 +1,4 @@
-const APP_VERSION = "2.1.0-test-planner";
+const APP_VERSION = "2.2.0-fast-vacations";
 const TIMEZONE = "Europe/Madrid";
 const MAX_OFFSET_SECONDS = 299;
 const MAX_DAILY_DEVIATION_SECONDS = 180;
@@ -52,7 +52,7 @@ export default {
         if (url.pathname === "/save") return saveConfiguration(request, env);
         if (url.pathname === "/enable") return setActive(env, true);
         if (url.pathname === "/disable") return setActive(env, false);
-        if (url.pathname === "/toggle-vacation") return toggleVacation(request, env);
+        if (url.pathname === "/save-vacations") return saveVacations(request, env);
 
         if (url.pathname === "/regenerate") {
           const today = getMadridParts(new Date()).date;
@@ -205,9 +205,7 @@ async function runScheduler(env, scheduledAt, actualNow) {
     const plannedSeconds = timeToSeconds(row.planned_time);
     const plannedMinute = Math.floor(plannedSeconds / 60);
 
-    // Cada marca pertenece a un único minuto de cron.
     if (plannedMinute !== scheduledMinute) continue;
-
     if (actualLocal.date !== scheduledLocal.date) continue;
 
     const actualSeconds =
@@ -484,7 +482,6 @@ function generateOffsetsForDeviation(base, targetDeviation) {
     const lunchIn = randomInt(0, MAX_OFFSET_SECONDS);
     const exitPM = randomInt(0, MAX_OFFSET_SECONDS);
 
-    // target = (lunchOut-entryAM) + (exitPM-lunchIn)
     const lunchOut =
       targetDeviation - exitPM + lunchIn + entryAM;
 
@@ -591,38 +588,67 @@ function validateBaseSchedule(config) {
   }
 }
 
-async function toggleVacation(request, env) {
+async function saveVacations(request, env) {
   const form = await request.formData();
-  const date = String(form.get("date") || "");
+  const month = String(form.get("month") || "");
+  const rawDates = String(form.get("dates") || "");
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return textResponse("Fecha inválida", 400);
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return textResponse("Mes inválido", 400);
   }
 
-  const parsed = parseDate(date);
-  const weekday = parsed.getUTCDay();
-  if (weekday === 0 || weekday === 6) {
-    return textResponse("Solo se pueden marcar días laborables", 400);
-  }
+  const selectedDates = Array.from(
+    new Set(
+      rawDates
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+  )
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .filter((date) => date.startsWith(`${month}-`))
+    .filter((date) => {
+      const weekday = parseDate(date).getUTCDay();
+      return weekday !== 0 && weekday !== 6;
+    })
+    .sort();
 
-  const existing = await env.DB.prepare(`
-    SELECT date FROM vacations WHERE date = ?1
+  const existingRows = await env.DB.prepare(`
+    SELECT date
+    FROM vacations
+    WHERE date >= ?1 AND date <= ?2
   `)
-    .bind(date)
-    .first();
+    .bind(`${month}-01`, `${month}-31`)
+    .all();
 
-  if (existing) {
-    await env.DB.prepare(`DELETE FROM vacations WHERE date = ?1`)
-      .bind(date)
-      .run();
-  } else {
-    await env.DB.prepare(`INSERT INTO vacations (date) VALUES (?1)`)
-      .bind(date)
-      .run();
+  const existingDates = (existingRows.results || []).map((row) => row.date);
+  const affectedWeeks = new Set(
+    [...existingDates, ...selectedDates].map((date) => getWeekStart(date))
+  );
+
+  const statements = [
+    env.DB.prepare(`
+      DELETE FROM vacations
+      WHERE date >= ?1 AND date <= ?2
+    `).bind(`${month}-01`, `${month}-31`),
+  ];
+
+  for (const date of selectedDates) {
+    statements.push(
+      env.DB.prepare(`INSERT INTO vacations (date) VALUES (?1)`).bind(date)
+    );
   }
 
-  await invalidateWeek(env, getWeekStart(date));
-  return redirect(`/?month=${date.slice(0, 7)}`);
+  for (const weekStart of affectedWeeks) {
+    statements.push(
+      env.DB.prepare(`DELETE FROM test_plan WHERE week_start = ?1`).bind(weekStart),
+      env.DB.prepare(`DELETE FROM test_day_summary WHERE week_start = ?1`).bind(weekStart),
+      env.DB.prepare(`DELETE FROM test_week_meta WHERE week_start = ?1`).bind(weekStart)
+    );
+  }
+
+  await env.DB.batch(statements);
+  return redirect(`/?month=${month}`);
 }
 
 async function isVacation(env, date) {
@@ -772,6 +798,7 @@ async function renderPanel(request, env) {
 
   const active = Boolean(config.active);
   const mode = String(env.MODE || "TEST").toUpperCase();
+  const initialVacationDates = [...vacationSet].sort().join(",");
 
   const html = `<!doctype html>
 <html lang="es">
@@ -780,7 +807,7 @@ async function renderPanel(request, env) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Woffu Clock Cloud</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#f5f5f7;color:#171717;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:860px;margin:auto;padding:18px}.card{background:#fff;border-radius:18px;padding:22px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}h1,h2{margin:0 0 14px}.version{color:#777;font-size:12px;margin-top:-8px;margin-bottom:16px}.status{font-size:28px;font-weight:800}.active{color:#157a2d}.paused{color:#b42318}.test{background:#fff3cd;border-radius:10px;padding:11px 13px;margin-top:12px}.muted,.hint{color:#666;font-size:14px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.day{border:1px solid #e5e5e5;border-radius:13px;padding:13px}.vacation{background:#fff7e9}.vacationText{margin-top:10px;font-weight:700}.event{display:flex;justify-content:space-between;gap:12px;padding-top:8px}.total{border-top:1px solid #eee;margin-top:10px;padding-top:10px;font-weight:700;display:flex;justify-content:space-between;gap:8px}.total span{color:#666;font-weight:500}label{display:block;font-weight:650;margin-top:14px}input[type=time]{width:100%;font-size:17px;padding:11px;margin-top:5px}button{width:100%;border:0;border-radius:10px;padding:13px;margin-top:12px;font-size:16px;cursor:pointer}.enable{background:#157a2d;color:#fff}.disable{background:#b42318;color:#fff}.save{background:#171717;color:#fff}.secondary{background:#ececec;color:#171717}.weekly{font-size:20px;font-weight:800;margin-top:15px}.calendarHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.calendarHead a{text-decoration:none;color:#171717;background:#eee;padding:8px 12px;border-radius:9px}.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.calLabel{text-align:center;color:#777;font-size:12px;font-weight:700;padding:5px}.calDay{width:100%;min-height:42px;padding:4px;margin:0;background:#f1f1f1;color:#171717}.calDay.selected{background:#f4bd5d}.calDay.weekend{opacity:.38}.calForm{margin:0}.empty{min-height:42px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 5px;border-bottom:1px solid #eee;font-size:13px}@media(max-width:620px){.wrap{padding:10px}.card{padding:16px}.grid{grid-template-columns:1fr}.calDay{min-height:38px;font-size:13px}}
+*{box-sizing:border-box}body{margin:0;background:#f5f5f7;color:#171717;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:860px;margin:auto;padding:18px}.card{background:#fff;border-radius:18px;padding:22px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}h1,h2{margin:0 0 14px}.version{color:#777;font-size:12px;margin-top:-8px;margin-bottom:16px}.status{font-size:28px;font-weight:800}.active{color:#157a2d}.paused{color:#b42318}.test{background:#fff3cd;border-radius:10px;padding:11px 13px;margin-top:12px}.muted,.hint{color:#666;font-size:14px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.day{border:1px solid #e5e5e5;border-radius:13px;padding:13px}.vacation{background:#fff7e9}.vacationText{margin-top:10px;font-weight:700}.event{display:flex;justify-content:space-between;gap:12px;padding-top:8px}.total{border-top:1px solid #eee;margin-top:10px;padding-top:10px;font-weight:700;display:flex;justify-content:space-between;gap:8px}.total span{color:#666;font-weight:500}label{display:block;font-weight:650;margin-top:14px}input[type=time]{width:100%;font-size:17px;padding:11px;margin-top:5px}button{width:100%;border:0;border-radius:10px;padding:13px;margin-top:12px;font-size:16px;cursor:pointer}.enable{background:#157a2d;color:#fff}.disable{background:#b42318;color:#fff}.save{background:#171717;color:#fff}.secondary{background:#ececec;color:#171717}.weekly{font-size:20px;font-weight:800;margin-top:15px}.calendarHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.calendarHead a{text-decoration:none;color:#171717;background:#eee;padding:8px 12px;border-radius:9px}.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.calLabel{text-align:center;color:#777;font-size:12px;font-weight:700;padding:5px}.calDay{width:100%;min-height:42px;padding:4px;margin:0;background:#f1f1f1;color:#171717;transition:transform .08s ease,background .12s ease}.calDay:active{transform:scale(.94)}.calDay.selected{background:#f4bd5d;font-weight:800}.calDay.weekend{opacity:.38}.empty{min-height:42px}.vacActions{display:flex;gap:10px;align-items:center;margin-top:14px}.vacActions button{margin:0;flex:1}.vacStatus{font-size:13px;color:#666;flex:1}.saveVac{background:#171717;color:#fff}.saveVac:disabled{opacity:.4;cursor:default}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 5px;border-bottom:1px solid #eee;font-size:13px}@media(max-width:620px){.wrap{padding:10px}.card{padding:16px}.grid{grid-template-columns:1fr}.calDay{min-height:38px;font-size:13px}.vacActions{display:block}.vacStatus{margin-bottom:10px}}
 </style>
 </head>
 <body>
@@ -814,8 +841,16 @@ async function renderPanel(request, env) {
 
   <section class="card">
     <h2>Vacaciones</h2>
-    <p class="hint">Pulsa un día laborable para incluirlo o excluirlo del plan.</p>
-    ${renderCalendar(month, vacationSet)}
+    <p class="hint">Marca todos los días que quieras. Los clics son instantáneos; Cloudflare solo guarda cuando pulsas el botón.</p>
+    <form id="vacationForm" method="POST" action="/save-vacations">
+      <input type="hidden" name="month" value="${month}">
+      <input id="vacationDates" type="hidden" name="dates" value="${escapeHtml(initialVacationDates)}">
+      ${renderCalendar(month, vacationSet)}
+      <div class="vacActions">
+        <div id="vacationStatus" class="vacStatus">Sin cambios pendientes</div>
+        <button id="saveVacations" class="saveVac" disabled>Guardar vacaciones</button>
+      </div>
+    </form>
   </section>
 
   <section class="card">
@@ -836,6 +871,51 @@ async function renderPanel(request, env) {
     </table>
   </section>
 </div>
+<script>
+(() => {
+  const input = document.getElementById('vacationDates');
+  const status = document.getElementById('vacationStatus');
+  const saveButton = document.getElementById('saveVacations');
+  const buttons = Array.from(document.querySelectorAll('[data-vacation-date]'));
+  if (!input || !status || !saveButton) return;
+
+  const initial = new Set((input.value || '').split(',').filter(Boolean));
+  const selected = new Set(initial);
+
+  function differenceCount() {
+    let count = 0;
+    for (const value of initial) if (!selected.has(value)) count++;
+    for (const value of selected) if (!initial.has(value)) count++;
+    return count;
+  }
+
+  function sync() {
+    input.value = Array.from(selected).sort().join(',');
+    const changes = differenceCount();
+    saveButton.disabled = changes === 0;
+    status.textContent = changes === 0
+      ? 'Sin cambios pendientes'
+      : changes + (changes === 1 ? ' cambio sin guardar' : ' cambios sin guardar');
+  }
+
+  for (const button of buttons) {
+    button.addEventListener('click', () => {
+      const date = button.dataset.vacationDate;
+      if (!date) return;
+
+      if (selected.has(date)) selected.delete(date);
+      else selected.add(date);
+
+      const isSelected = selected.has(date);
+      button.classList.toggle('selected', isSelected);
+      button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+      sync();
+    });
+  }
+
+  sync();
+})();
+</script>
 </body>
 </html>`;
 
@@ -869,10 +949,13 @@ function renderCalendar(month, vacationSet) {
       cells += `<button type="button" class="calDay weekend" disabled>${day}</button>`;
     } else {
       cells += `
-        <form class="calForm" method="POST" action="/toggle-vacation">
-          <input type="hidden" name="date" value="${date}">
-          <button class="calDay ${selected ? "selected" : ""}" title="${selected ? "Quitar vacaciones" : "Marcar vacaciones"}">${day}</button>
-        </form>
+        <button
+          type="button"
+          class="calDay ${selected ? "selected" : ""}"
+          data-vacation-date="${date}"
+          aria-pressed="${selected ? "true" : "false"}"
+          title="${selected ? "Quitar vacaciones" : "Marcar vacaciones"}"
+        >${day}</button>
       `;
     }
   }
