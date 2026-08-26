@@ -1,0 +1,61 @@
+name: Assemble and validate mobile v5
+
+on:
+  push:
+    branches: [v5-mobile-fast]
+    paths:
+      - "chunks/v5/**"
+      - ".github/workflows/assemble-v5.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout v5 branch
+        uses: actions/checkout@v4
+        with:
+          ref: v5-mobile-fast
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Assemble and verify source
+        run: |
+          cat chunks/v5/part* > /tmp/index-v5.b64
+          base64 --decode /tmp/index-v5.b64 > src/index-v5.js
+          echo "3b301dab766be833735f3dc36d2170f7435a0ab13036f139d4f8fc496ce83340  src/index-v5.js" | sha256sum -c -
+          node --check src/index-v5.js
+
+      - name: Point Wrangler to v5
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = 'wrangler.jsonc';
+          const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+          config.main = 'src/index-v5.js';
+          fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+          NODE
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Validate complete Worker bundle
+        run: npx wrangler deploy --dry-run --outdir dist
+
+      - name: Commit validated v5 source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/index-v5.js wrangler.jsonc
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit"
+            exit 0
+          fi
+          git commit -m "Build validated mobile-first v5"
+          git push origin v5-mobile-fast
