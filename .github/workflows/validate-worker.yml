@@ -24,6 +24,7 @@ jobs:
           node --check src/index-v6.js
           node --check src/index-v7.js
           node --check src/index-v8.js
+          node --check src/index-v9.js
 
       - name: Install dependencies
         run: npm install
