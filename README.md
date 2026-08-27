@@ -1,27 +1,26 @@
-# woffu-clock-cloud
+# Woffu Clock Cloud
 
-Cloud Woffu clock automation using Cloudflare Workers.
+Webapp de prueba para planificar y automatizar fichajes de una cuenta Woffu mediante Cloudflare Workers.
 
-## Tutorial de configuración para pruebas
+## Tutorial completo para principiantes
 
-Para crear una copia independiente del proyecto y configurarla con una cuenta Woffu de test, sigue esta guía:
+Si empiezas sin cuenta de GitHub o Cloudflare y no tienes conocimientos técnicos, sigue la guía paso a paso:
 
-[docs/SETUP_TESTING_ES.md](docs/SETUP_TESTING_ES.md)
+### [Abrir la guía completa de configuración y uso](docs/SETUP_TESTING_ES.md)
 
-La guía cubre:
+La guía explica desde cero:
 
-- Fork del repositorio.
-- Cloudflare Worker.
-- Base D1.
-- Secrets y variables.
-- Prueba de autenticación Woffu.
-- Prueba manual de fichaje.
-- Configuración del scheduler.
-- Activación y parada de la automatización.
-- Diagnóstico y checklist final.
+- Cómo crear las cuentas de GitHub y Cloudflare, con enlaces oficiales.
+- Cómo hacer tu propia copia del repositorio sin instalar programas.
+- Cómo desplegar el Worker y comprobar la base D1.
+- Cómo guardar las credenciales correctamente como secretos.
+- Cómo probar la conexión sin fichar.
+- Qué hace cada pantalla de la webapp.
+- Cómo probar un fichaje manual y el scheduler de forma controlada.
+- Cómo detener, actualizar y diagnosticar la aplicación.
+
+> Utiliza únicamente una cuenta Woffu de prueba o una cuenta para la que tengas autorización expresa. Empieza siempre con `MODE=TEST`, `WOFFU_WRITE_ENABLED=false` y la automatización pausada.
 
 ## Estado actual
 
-El entrypoint activo se define en `wrangler.jsonc`.
-
-La automatización programada no tiene una fecha de fin automática: permanece activa mientras la configuración de ejecución y el interruptor de automatización lo permitan. Consulta el tutorial antes de habilitar escritura programada.
+El entrypoint activo está definido en `wrangler.jsonc`. La automatización no tiene fecha de fin automática: continúa mientras los controles de Cloudflare y el interruptor de la webapp permitan su ejecución.
