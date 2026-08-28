@@ -24,3 +24,5 @@ La guía explica desde cero:
 ## Estado actual
 
 El entrypoint activo está definido en `wrangler.jsonc`. La automatización no tiene fecha de fin automática: continúa mientras los controles de Cloudflare y el interruptor de la webapp permitan su ejecución.
+
+<!-- Activar primer despliegue de Cloudflare -->
